@@ -156,40 +156,121 @@ export default function Home() {
   );
 }
 "use client";
-import { useState, useEffect } from "react";
+
+import { useState, useEffect, useRef } from "react";
 import { USER_DATABASE, UserProfile } from "../lib/users";
-// Importando o banco de dados do Firebase
 import { db } from "../lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { 
+  collection, 
+  addDoc, 
+  query, 
+  orderBy, 
+  onSnapshot, 
+  serverTimestamp 
+} from "firebase/firestore";
 
 export default function Home() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [activeUser, setActiveUser] = useState<UserProfile | null>(null);
-  const [secretContent, setSecretContent] = useState("Carregando dados criptografados...");
+  const [messages, setMessages] = useState<any[]>([]);
+  const [newMessage, setNewMessage] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Função para buscar conteúdo no Firebase após o login
-  const fetchSecretData = async () => {
-    try {
-      // Suposição: você criou uma coleção "vault" e um documento "main" no Firestore
-      const docRef = doc(db, "vault", "main");
-      const docSnap = await getDoc(docRef);
-
-      if (docSnap.exists()) {
-        setSecretContent(docSnap.data().message);
-      } else {
-        setSecretContent("AVISO: O banco de dados está vazio.");
-      }
-    } catch (err) {
-      setSecretContent("ERRO: Falha na conexão com o Firebase.");
-    }
-  };
-
-  // Chama a busca assim que o usuário logar
+  // 1. Escuta o chat em tempo real
   useEffect(() => {
     if (activeUser) {
-      fetchSecretData();
+      const q = query(collection(db, "chat"), orderBy("timestamp", "asc"));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const msgData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setMessages(msgData);
+        // Scroll para o final automaticamente
+        setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+      });
+      return () => unsubscribe();
     }
   }, [activeUser]);
 
-  // ... (mantenha a lógica de handleLogin igual ao passo anterior)
+  // 2. Função para enviar mensagem
+  const sendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newMessage.trim() === "") return;
+
+    await addDoc(collection(db, "chat"), {
+      text: newMessage,
+      sender: activeUser?.username,
+      timestamp: serverTimestamp(),
+    });
+    setNewMessage("");
+  };
+
+  // --- LÓGICA DE LOGIN (Mantenha a que já fizemos) ---
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const found = USER_DATABASE.find(u => u.username === username && u.passkey === password);
+    if (found) setActiveUser(found);
+  };
+
+  if (!activeUser) {
+    return (
+      /* Mantenha aqui o código do FORMULÁRIO DE LOGIN que te enviei antes */
+      <div className="p-20">Carregando formulário... (Use o código anterior aqui)</div>
+    );
+  }
+
+  // --- INTERFACE DO CHAT ESTILO WHATSAPP ---
+  return (
+    <main className="flex flex-col h-screen bg-[#050505] font-mono">
+      {/* Header */}
+      <header className="p-4 border-b border-emerald-900 bg-black flex justify-between items-center">
+        <div>
+          <h1 className="text-emerald-500 font-bold text-xs">PROTOCOLO_CHAT_v1.0</h1>
+          <p className="text-[10px] text-emerald-800 uppercase">Usuário: {activeUser.username}</p>
+        </div>
+        <button onClick={() => setActiveUser(null)} className="text-[10px] text-red-900 hover:text-red-500 underline">DESCONECTAR</button>
+      </header>
+
+      {/* Área de Mensagens */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.map((msg) => {
+          const isMe = msg.sender === activeUser.username;
+          return (
+            <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
+              <div className={`max-w-[70%] p-3 rounded-lg border ${
+                isMe 
+                ? "bg-emerald-950/30 border-emerald-500/50 text-emerald-200" 
+                : "bg-zinc-900 border-zinc-700 text-zinc-300"
+              }`}>
+                <div className="flex justify-between items-center gap-4 mb-1">
+                  <span className="text-[9px] font-bold uppercase text-emerald-600">{msg.sender}</span>
+                  <span className="text-[8px] opacity-50">
+                    {msg.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+                <p className="text-sm break-words">{msg.text}</p>
+              </div>
+            </div>
+          );
+        })}
+        <div ref={scrollRef} />
+      </div>
+
+      {/* Input de Mensagem */}
+      <form onSubmit={sendMessage} className="p-4 border-t border-emerald-900 bg-black flex gap-2">
+        <input 
+          type="text"
+          value={newMessage}
+          onChange={(e) => setNewMessage(e.target.value)}
+          placeholder="Digite sua transmissão..."
+          className="flex-1 bg-zinc-950 border border-emerald-900 p-2 text-sm text-emerald-400 outline-none focus:border-emerald-500"
+        />
+        <button type="submit" className="bg-emerald-900 text-black px-4 py-2 text-xs font-bold hover:bg-emerald-500 transition-colors">
+          ENVIAR
+        </button>
+      </form>
+    </main>
+  );
+}
