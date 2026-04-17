@@ -166,18 +166,38 @@ import {
   query, 
   orderBy, 
   onSnapshot, 
-  serverTimestamp 
+  serverTimestamp,
+  Timestamp 
 } from "firebase/firestore";
 
 export default function Home() {
+  // Estados de Login
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [activeUser, setActiveUser] = useState<UserProfile | null>(null);
+  const [error, setError] = useState("");
+
+  // Estados do Chat
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 1. Escuta o chat em tempo real
+  // 1. Lógica de Login
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const found = USER_DATABASE.find(
+      (u) => u.username === username && u.passkey === password
+    );
+
+    if (found) {
+      setActiveUser(found);
+      setError("");
+    } else {
+      setError("ACESSO NEGADO: CREDENCIAIS INVÁLIDAS.");
+    }
+  };
+
+  // 2. Escutar mensagens em tempo real (Firebase)
   useEffect(() => {
     if (activeUser) {
       const q = query(collection(db, "chat"), orderBy("timestamp", "asc"));
@@ -187,70 +207,95 @@ export default function Home() {
           ...doc.data()
         }));
         setMessages(msgData);
-        // Scroll para o final automaticamente
-        setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
       });
       return () => unsubscribe();
     }
   }, [activeUser]);
 
-  // 2. Função para enviar mensagem
+  // 3. Auto-scroll para a última mensagem
+  useEffect(() => {
+    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // 4. Enviar mensagem
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newMessage.trim() === "") return;
+    if (newMessage.trim() === "" || !activeUser) return;
 
-    await addDoc(collection(db, "chat"), {
-      text: newMessage,
-      sender: activeUser?.username,
-      timestamp: serverTimestamp(),
-    });
-    setNewMessage("");
+    try {
+      await addDoc(collection(db, "chat"), {
+        text: newMessage,
+        sender: activeUser.username,
+        timestamp: serverTimestamp(),
+      });
+      setNewMessage("");
+    } catch (err) {
+      console.error("Erro ao enviar:", err);
+    }
   };
 
-  // --- LÓGICA DE LOGIN (Mantenha a que já fizemos) ---
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    const found = USER_DATABASE.find(u => u.username === username && u.passkey === password);
-    if (found) setActiveUser(found);
-  };
-
+  // TELA DE LOGIN
   if (!activeUser) {
     return (
-      /* Mantenha aqui o código do FORMULÁRIO DE LOGIN que te enviei antes */
-      <div className="p-20">Carregando formulário... (Use o código anterior aqui)</div>
+      <main className="flex min-h-screen items-center justify-center bg-black font-mono p-4">
+        <div className="w-full max-w-sm border border-emerald-900 bg-zinc-950 p-8 shadow-2xl">
+          <h1 className="text-emerald-500 text-center mb-8 tracking-[0.3em] text-sm animate-pulse">TERMINAL_ACESSO_RESTRITO</h1>
+          <form onSubmit={handleLogin} className="space-y-6">
+            <input 
+              type="text" 
+              placeholder="USUÁRIO" 
+              className="w-full bg-black border-b border-emerald-900 p-2 outline-none focus:border-emerald-500 text-emerald-500"
+              onChange={(e) => setUsername(e.target.value)}
+            />
+            <input 
+              type="password" 
+              placeholder="SENHA (8 DÍGITOS)" 
+              maxLength={8}
+              className="w-full bg-black border-b border-emerald-900 p-2 outline-none focus:border-emerald-500 text-emerald-500"
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            {error && <p className="text-red-700 text-[10px] text-center">{error}</p>}
+            <button className="w-full border border-emerald-800 py-3 hover:bg-emerald-500 hover:text-black transition-all text-xs uppercase tracking-widest">Entrar</button>
+          </form>
+        </div>
+      </main>
     );
   }
 
-  // --- INTERFACE DO CHAT ESTILO WHATSAPP ---
+  // TELA DO CHAT (ESTILO WHATSAPP)
   return (
-    <main className="flex flex-col h-screen bg-[#050505] font-mono">
-      {/* Header */}
-      <header className="p-4 border-b border-emerald-900 bg-black flex justify-between items-center">
-        <div>
-          <h1 className="text-emerald-500 font-bold text-xs">PROTOCOLO_CHAT_v1.0</h1>
-          <p className="text-[10px] text-emerald-800 uppercase">Usuário: {activeUser.username}</p>
+    <main className="flex flex-col h-screen bg-[#050505] font-sans">
+      {/* Header do Chat */}
+      <header className="p-4 bg-zinc-900 border-b border-zinc-800 flex justify-between items-center">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-emerald-900 rounded-full flex items-center justify-center text-emerald-300 font-bold">
+            {activeUser.username[0]}
+          </div>
+          <div>
+            <h2 className="text-white text-sm font-semibold">Cofre de Comunicação</h2>
+            <p className="text-[10px] text-emerald-500">10 Membros Ativos</p>
+          </div>
         </div>
-        <button onClick={() => setActiveUser(null)} className="text-[10px] text-red-900 hover:text-red-500 underline">DESCONECTAR</button>
+        <button onClick={() => setActiveUser(null)} className="text-zinc-500 hover:text-white text-xs">SAIR</button>
       </header>
 
-      {/* Área de Mensagens */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* Área das Mensagens */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat">
         {messages.map((msg) => {
           const isMe = msg.sender === activeUser.username;
+          const date = msg.timestamp instanceof Timestamp ? msg.timestamp.toDate() : new Date();
+          const timeString = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
           return (
             <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[70%] p-3 rounded-lg border ${
-                isMe 
-                ? "bg-emerald-950/30 border-emerald-500/50 text-emerald-200" 
-                : "bg-zinc-900 border-zinc-700 text-zinc-300"
+              <div className={`max-w-[75%] px-3 py-2 rounded-lg shadow-sm relative ${
+                isMe ? "bg-emerald-800 text-white rounded-tr-none" : "bg-zinc-800 text-zinc-100 rounded-tl-none"
               }`}>
-                <div className="flex justify-between items-center gap-4 mb-1">
-                  <span className="text-[9px] font-bold uppercase text-emerald-600">{msg.sender}</span>
-                  <span className="text-[8px] opacity-50">
-                    {msg.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </div>
-                <p className="text-sm break-words">{msg.text}</p>
+                {!isMe && <p className="text-[10px] font-bold text-emerald-400 mb-1">{msg.sender}</p>}
+                <p className="text-sm leading-relaxed pr-8">{msg.text}</p>
+                <span className="text-[9px] opacity-60 absolute bottom-1 right-2">
+                  {timeString}
+                </span>
               </div>
             </div>
           );
@@ -258,17 +303,17 @@ export default function Home() {
         <div ref={scrollRef} />
       </div>
 
-      {/* Input de Mensagem */}
-      <form onSubmit={sendMessage} className="p-4 border-t border-emerald-900 bg-black flex gap-2">
+      {/* Barra de Input */}
+      <form onSubmit={sendMessage} className="p-3 bg-zinc-900 flex gap-2 items-center">
         <input 
           type="text"
           value={newMessage}
           onChange={(e) => setNewMessage(e.target.value)}
-          placeholder="Digite sua transmissão..."
-          className="flex-1 bg-zinc-950 border border-emerald-900 p-2 text-sm text-emerald-400 outline-none focus:border-emerald-500"
+          placeholder="Mensagem criptografada..."
+          className="flex-1 bg-zinc-800 border-none rounded-full px-4 py-2 text-sm text-white outline-none focus:ring-1 focus:ring-emerald-500"
         />
-        <button type="submit" className="bg-emerald-900 text-black px-4 py-2 text-xs font-bold hover:bg-emerald-500 transition-colors">
-          ENVIAR
+        <button type="submit" className="w-10 h-10 bg-emerald-600 rounded-full flex items-center justify-center hover:bg-emerald-500 transition-colors">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>
         </button>
       </form>
     </main>
